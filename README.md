@@ -341,7 +341,7 @@ Per-label ROC-AUC, optimal decision threshold (Youden's J), and F1 at that thres
 | Lung Opacity | 0.8672 | 0.7812 | 0.8735 |
 | Lung Lesion | 0.8098 | 0.2759 | 0.6180 |
 | Edema | 0.8919 | 0.7337 | 0.8495 |
-| Consolidation | — | — | — |
+| Consolidation | 0.8722 | 0.1264 | 0.7063 |
 | Pneumonia | 0.8373 | 0.1488 | 0.5857 |
 | Atelectasis | 0.8442 | 0.6470 | 0.8163 |
 | Pneumothorax | 0.7732 | 0.2248 | 0.5719 |
