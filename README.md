@@ -72,12 +72,19 @@ Download: [Kaggle — CheXpert](https://www.kaggle.com/datasets/ashery/chexpert/
 
 ### 13 target pathology labels
 
-| | | | |
-|---|---|---|---|
-| Enlarged Cardiomediastinum | Cardiomegaly | Lung Opacity | Lung Lesion |
-| Edema | Consolidation | Pneumonia | Atelectasis |
-| Pneumothorax | Pleural Effusion | Pleural Other | Fracture |
-| Support Devices | | | |
+- Enlarged Cardiomediastinum
+- Cardiomegaly
+- Lung Opacity
+- Lung Lesion
+- Edema
+- Consolidation
+- Pneumonia
+- Atelectasis
+- Pneumothorax
+- Pleural Effusion
+- Pleural Other
+- Fracture
+- Support Devices
 
 ### Label encoding
 
