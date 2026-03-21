@@ -17,7 +17,7 @@ from preprocess import preprocess_chexpert_dataframe
 class CheXpertTrainer:
     def __init__(self, config):
         self.config = config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
         self.model = CheXpertResNet50(num_classes=config['num_classes']).to(self.device)
         
         if config['loss_type'] == 'bce':
