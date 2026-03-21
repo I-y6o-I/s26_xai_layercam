@@ -1,0 +1,102 @@
+\documentclass[12pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{setspace}
+\usepackage{enumitem}
+
+\setstretch{1.15}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{XAI Course Project Proposal: LayerCAM for multi-label lungs pathology Detection on CheXpert Dataset}} \\[1.2em]
+    {\large Kirill Shumskiy, Ivan Makarov, Arthur Babkin} \\[0.6em]
+    {\large February 10, 2026}
+\end{center}
+
+\section{Project Overview}
+
+We propose implementing \textbf{LayerCAM} (\href{https://www.researchgate.net/publication/352675569_LayerCAM_Exploring_Hierarchical_Class_Activation_Maps}{paper}) to explain predictions of a \textbf{ResNet-50} model for \textbf{multi-label chest pathology detection} on the CheXpert dataset. The project will include:
+\begin{itemize}
+    \item Implementation of LayerCAM on pure PyTorch + NumPy
+    \item Application to multi-label CheXpert multi-label lungs pathology detection
+    \item Visual explanations (heatmaps) and short documentation
+    \item Public GitHub repository with reproducible code
+\end{itemize}
+
+\section{Components}
+
+\subsection{Application Domain}
+\begin{itemize}
+    \item \textbf{Domain:} Healthcare diagnostics (chest pathology detection in X-rays)
+    \item \textbf{Importance:} High-stakes decisions requiring model transparency
+    \item \textbf{Dataset:} CheXpert (Kaggle downsampled), \textbf{224,316} radiographs from \textbf{65,240} patients (frontal + lateral views; includes uncertainty labels)
+    \item \textbf{Tasks / labels:} CheXpert provides \textbf{14 independent labels} (multi-label setting): \\
+    \textit{No Finding, Enlarged Cardiomediastinum, Cardiomegaly, Lung Opacity, Lung Lesion, Edema, Consolidation, Pneumonia, Atelectasis, Pneumothorax, Pleural Effusion, Pleural Other, Fracture, Support Devices.}
+    \item \textbf{Why multi-label:} One X-ray can have multiple diagnoses simultaneously; in \texttt{train.csv}/\texttt{valid.csv}, each pathology is a separate column and labels are independent (multi-label, not multi-class).
+    \item \textbf{Uncertainty labels:} Each label is in $\{-1,0,1\}$ where $1$=present, $0$=absent, and $-1$=uncertain. In practice, we will handle $-1$ by either dropping uncertain labels or mapping $-1 \rightarrow 0$ or $-1 \rightarrow 1$ (we will document the chosen strategy).
+    \item \textbf{Link:} \url{https://www.kaggle.com/datasets/ashery/chexpert/data}
+\end{itemize}
+
+\subsection{Machine Learning Model}
+\begin{itemize}
+    \item \textbf{Model Type:} CNN for image classification
+    \item \textbf{Backbone:} ResNet-50 (default input size 224$\times$224; \textbf{may be revisited} depending on results and compute constraints)
+    \item \textbf{Need for XAI:} Black-box decisions affecting medical interpretation
+\end{itemize}
+
+% PHOTO TO INSERT HERE:
+% Fig 2: simple ResNet-50 diagram
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.92\linewidth]{resnet50.jpg}
+    \caption{ResNet-50 architecture overview.}
+\end{figure}
+
+\subsection{Proposed XAI Method}
+\begin{itemize}
+    \item \textbf{Method:} LayerCAM (multi-layer class activation mapping)
+    \item \textbf{Implementation Plan:}
+    \begin{itemize}
+        \item \textbf{Data preprocessing:} parse \texttt{train.csv}/\texttt{valid.csv}, handle uncertainty labels ($-1$), and apply standard image transforms (resize to 224$\times$224, normalization; may be revisited).
+        \item Reproduce LayerCAM in pure PyTorch + NumPy
+        \item \textbf{Train a ResNet-50} on CheXpert and use it as the main model for generating LayerCAM heatmap visualizations
+        \item \textbf{Evaluation:} compute \textbf{ROC-AUC} (per label) and select decision \textbf{thresholds} based on validation performance
+        \item \textbf{Explanation analysis:} qualitatively review LayerCAM heatmaps on a set of correctly and incorrectly predicted images to assess how representative the explanations are (e.g., whether highlighted regions align with plausible lung pathology areas and common failure patterns).
+    \end{itemize}
+    \item \textbf{Key Equation (LayerCAM idea):}
+    \begin{equation}
+    Layer\_CAM_{ij}^c=\sum_k{A^k_{ij}} * ReLU(\frac{dy^c}{dA^k_{ij}})
+    \end{equation}
+    where $y^c$ is logit of class $c$, $A^k$ is activations of layer $k$
+\end{itemize}
+
+% PHOTO TO INSERT HERE:
+% Fig 3: LayerCAM pipeline diagram (activations + gradients -> per-location weights -> map -> fusion)
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{layergradcam.png}
+    \caption{Layer Grad-CAM pipeline. \textbf{Note:} Layer Grad-CAM (LayerCAM) differs from Grad-CAM by using \textbf{pixel/location-wise positive gradients} to weight activations and \textbf{fusing CAMs from multiple layers}, instead of Grad-CAM's \textbf{single global weight per channel from one layer}.}
+\end{figure}
+
+\section{Deliverables}
+\begin{itemize}
+    \item Documented PyTorch/NumPy code on GitHub/Colab
+    \item Short technical blog post explaining method/results
+    \item 3--5 explanation examples (X-ray + heatmap overlays)
+    \item Validation using ROC-AUC
+\end{itemize}
+
+\section{Timeline}
+\begin{itemize}
+    \item \textbf{Feb 12:} Proposal submission
+    \item \textbf{March 12:} Base implementation
+    \item \textbf{April 15:} Visualizations/Testing
+    \item \textbf{April 21:} Final presentation
+\end{itemize}
+
+\end{document}
