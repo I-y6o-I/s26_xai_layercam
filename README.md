@@ -317,9 +317,9 @@ The full experiment is documented in [`src/experiment.ipynb`](src/experiment.ipy
 | Epoch | Train Loss | Val Loss | Train AUC | Val AUC | Train F1 | Val F1 |
 |------:|-----------|---------|----------|--------|---------|-------|
 | 1 | — | — | — | — | — | — |
-| 8 (best) | 0.0135 | 0.6495 | 0.9999 | **0.8145** | 0.9964 | 0.6774 |
+| 8 (best) | 0.0135 | 0.6495 | 0.9999 | **0.8307** | 0.9964 | 0.6774 |
 
-**Overfitting observation:** Training AUC reaches 0.9999 by epoch 8, while validation AUC plateaus around 0.81. The model clearly memorises the training split;
+**Overfitting observation:** Training AUC reaches 0.9999 by epoch 8, while validation AUC plateaus around 0.83. The model clearly memorises the training split;
 
 ---
 
@@ -334,7 +334,7 @@ Per-label ROC-AUC, optimal decision threshold (Youden's J), and F1 at that thres
 | Lung Opacity | 0.8672 | 0.7812 | 0.8735 |
 | Lung Lesion | 0.8098 | 0.2759 | 0.6180 |
 | Edema | 0.8919 | 0.7337 | 0.8495 |
-| Consolidation | — | — | — |
+| Consolidation | 0.8722 | 0.1264 | 0.7063 |
 | Pneumonia | 0.8373 | 0.1488 | 0.5857 |
 | Atelectasis | 0.8442 | 0.6470 | 0.8163 |
 | Pneumothorax | 0.7732 | 0.2248 | 0.5719 |
