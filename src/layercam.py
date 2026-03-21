@@ -54,10 +54,8 @@ class LayerCAM:
         gradients = self.gradients[0]
         activations = self.activations[0]
 
-        weighted_maps = gradients * activations
+        weighted_maps = F.relu(gradients) * activations  # ReLU on gradients first (per paper)
         cam = torch.sum(weighted_maps, dim=0)
-        
-        cam = F.relu(cam)
         
         if cam.max() > cam.min():
             cam = (cam - cam.min()) / (cam.max() - cam.min())
