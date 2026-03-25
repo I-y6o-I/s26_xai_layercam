@@ -1,0 +1,333 @@
+\documentclass[12pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{indentfirst}
+
+\setstretch{1.15}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{XAI Course Baseline Implementation Report: LayerCAM for multi-label lungs pathology Detection on CheXpert Dataset}} \\[1.2em]
+    {\large Kirill Shumskiy, Ivan Makarov, Arthur Babkin} \\[0.6em]
+    {\large March 25, 2026}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Product Name}
+
+\textbf{LayerCAM for Multi-Label Lung Pathology Detection on CheXpert} is an explainability tool for chest X-ray classification based on a fine-tuned ResNet-50. The model predicts 13 possible pathologies on a single X-ray image and, for each prediction, produces a LayerCAM heatmap showing which regions of the image influenced the decision. In this report, we implement GradCAM as a baseline. In the following reports, we will add LayerCAM implementation, enabling side-by-side comparison and analysis of the explanations.
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Domain of Application}
+
+\textbf{Domain:} Healthcare diagnostics --- automated analysis of chest X-rays for multi-label pathology detection.
+
+\textbf{Dataset:} We use the CheXpert dataset from Stanford, which contains 224,316 chest radiographs from 65,240 patients. Each study is annotated with 14 labels, and a single image may contain several pathologies at the same time, so this is a multi-label classification task rather than a multi-class one.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Label value} & \textbf{Meaning} \\
+\midrule
+$1$          & Pathology present \\
+$0$          & Pathology absent \\
+$-1$         & Uncertain label \\
+\texttt{NaN} & Label not mentioned \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+During training, uncertain ($-1$) and missing (\texttt{NaN}) labels are ignored using a valid mask, so the model learns only from clearly positive and negative cases. The label ``No Finding'' is handled separately: if it is positive, all pathology labels are set to zero, which leaves 13 target pathologies for prediction.
+
+This application is important because chest X-ray is one of the most common imaging tools in medicine, and radiologists often work under high time pressure. AI systems can help with screening and prioritisation, but in practice they are much more useful when their predictions can also be explained and visually inspected.
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Motivation to Complete the Project}
+
+We chose this project because medical imaging is a setting where explainability really matters: a model prediction alone is not enough if people cannot understand what the model looked at. We also wanted to implement the methods ourselves instead of using a ready-made XAI library, so that we could better understand how GradCAM and LayerCAM actually work. Finally, the CheXpert multi-label setting made the task more realistic and more interesting than a standard single-class demo.
+
+% ─────────────────────────────────────────────────────────────────────
+\section{The Real-World Problem Our Product Solves}
+
+Chest X-ray models can predict pathologies quickly, but a probability score by itself is hard to trust in practice. A doctor or researcher needs to see whether the model is focusing on the relevant part of the image, not on artifacts or irrelevant patterns. Our product helps with this by generating visual heatmaps for each prediction, making the model's decision easier to inspect and compare.
+
+% ─────────────────────────────────────────────────────────────────────
+\section{The Technical Problem: The Black Box}
+
+ResNet-50 is a 23.5-million-parameter convolutional neural network.
+When it outputs a probability of 0.92 for ``Pleural Effusion'', there is no obvious way to ask it \emph{why}.
+The network's decision is spread across hundreds of feature maps, nonlinear activations, and residual connections --- it is, in the standard sense, a black box.
+
+Class Activation Mapping (CAM) methods solve this by backpropagating the gradient of a target class score $y^c$ through the network and combining it with the feature map activations at a chosen layer.
+The resulting map has the same spatial extent as the feature map and can be upsampled to the input image size to produce a human-interpretable heatmap.
+
+\textbf{GradCAM} (Selvaraju et al., 2017) computes a single scalar weight per channel by globally average-pooling the gradients:
+\[
+    \alpha_k^c = \frac{1}{Z} \sum_{i,j} \frac{\partial y^c}{\partial A^k_{ij}},
+    \qquad
+    \text{GradCAM}^c = \mathrm{ReLU}\!\left(\sum_k \alpha_k^c A^k\right).
+\]
+
+\textbf{LayerCAM} (Jiang et al., 2021) keeps the gradient information at every spatial location instead of collapsing it:
+\[
+    \text{LayerCAM}_{ij}^c = \sum_k A^k_{ij} \cdot \mathrm{ReLU}\!\left(
+        \frac{\partial y^c}{\partial A^k_{ij}}
+    \right).
+\]
+
+The practical consequence is significant: GradCAM's global pooling discards fine-grained spatial information, producing broad, channel-level heatmaps.
+LayerCAM's element-wise weighting preserves spatial detail, generating sharper maps --- especially at intermediate layers (\texttt{layer3}) and for spatially distributed pathologies such as Lung Opacity or Support Devices.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{photos/layergradcam.png}
+    \caption{LayerCAM pipeline. Unlike GradCAM, which computes a single global weight per channel, LayerCAM uses pixel-wise positive gradients to weight activations at every spatial location and can fuse CAMs from multiple layers.}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────
+\section{The Baseline Implementation}
+
+\subsection{Dataset Preprocessing}
+
+The original CheXpert release contains 224,316 frontal and lateral chest radiographs. To make the data usable in our training pipeline, we implemented two modules that convert the raw CSV metadata and image files into a PyTorch-compatible dataset.
+
+\texttt{preprocess.py} is responsible for dataset-level preprocessing. It filters the studies to frontal-view X-rays only, removing lateral projections, fixes relative image paths so that files can be loaded correctly from different working directories, and applies the ``No Finding'' rule: if the ``No Finding'' label is positive, all other pathology labels are set to zero.
+
+\texttt{dataset.py} defines the \texttt{CheXpertDataset} class, implemented as a standard \path{torch.utils.data.Dataset}. Each sample is returned as a triplet \texttt{(image\_tensor, targets, valid\_mask)}. The \texttt{valid\_mask} is a binary vector of length 13 indicating which labels are reliable for a given study. Uncertain labels ($-1$) and missing labels (\texttt{NaN}) are assigned a mask value of 0 and are excluded from both loss computation and evaluation, so only clearly positive ($1$) and negative ($0$) labels contribute to training. All images are resized to $224\times224$ and normalised using ImageNet statistics ($\mu = [0.485, 0.456, 0.406]$, $\sigma = [0.229, 0.224, 0.225]$).
+
+\subsection{GradCAM Implementation}
+
+GradCAM was implemented fully from scratch in PyTorch and NumPy, without using any external XAI library.
+
+\texttt{gradcam.py} defines the \texttt{GradCAM} class. It registers forward and backward hooks on a selected ResNet layer, computes per-channel gradient weights using global average pooling, and produces the final heatmap as a weighted sum of feature maps followed by ReLU. The file also includes the helper functions \texttt{visualize\_cam()}, which overlays the heatmap on the input image, and \texttt{evaluate\_cam\_quality()}, which computes quantitative metrics such as Pearson $r$ and focus ratio.
+
+Multi-layer analysis is implemented in \texttt{generate\_layer\_specific\_cam()}. This function generates CAMs from \texttt{layer2}, \texttt{layer3}, and \texttt{layer4} and resizes them to a common resolution, allowing comparison of coarse semantic information from deeper layers with finer spatial detail from shallower layers.
+
+\subsection{Model and Training}
+
+\texttt{model.py} defines the \texttt{CheXpertResNet50} model. It uses an ImageNet-pretrained ResNet-50 backbone, where the final fully connected layer is replaced with \texttt{Linear(2048, 13)} followed by sigmoid activation for multi-label prediction. The method \texttt{get\_feature\_maps()} exposes intermediate activations, which are used for CAM hook registration.
+
+\texttt{loss.py} implements \texttt{MaskedBCELoss}. This loss applies the \texttt{valid\_mask} before computing binary cross-entropy, so uncertain and missing labels do not contribute either positive or negative gradient signals during training.
+
+\texttt{train.py} defines the \texttt{CheXpertTrainer} class, which provides the full training pipeline, including TensorBoard logging, per-class AUC and F1 tracking, and checkpoint saving whenever the mean validation AUC improves.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{photos/resnet50.jpg}
+    \caption{ResNet-50 architecture overview. The final fully connected layer is replaced by \texttt{Linear(2048, 13)} with sigmoid output for multi-label classification.}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Setting} & \textbf{Value} \\
+\midrule
+Backbone          & ResNet-50, ImageNet pretrained (23.5M parameters) \\
+Head              & \texttt{Linear(2048, 13)}, sigmoid output \\
+Loss              & \texttt{MaskedBCELoss} \\
+Optimiser         & Adam, $\text{lr}=10^{-4}$, $\lambda=10^{-5}$ \\
+Scheduler         & ReduceLROnPlateau (factor 0.5, patience 3) \\
+Data split        & 10{,}000 train / 2{,}000 validation \\
+Device            & Apple Silicon MPS \\
+Epochs            & 10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The model achieves a mean validation AUC of 0.8307 across all 13 labels. At the same time, the training AUC reaches 0.9999 by epoch 8, which indicates clear overfitting on the 10k training subset. We used only 10k training images because of hardware limitations: even this subset already required more than an hour of training on our device. This limitation should be considered when evaluating potential future improvements, subject to feedback from the professor, as the course primarily emphasizes model analysis (Explainable and Fair AI) rather than model training.
+
+\subsection{Evaluation and Per-Label Performance}
+
+\texttt{evaluate.py} provides three utilities: \texttt{collect\_predictions()} runs the model over the full validation set and collects logits and labels, \texttt{compute\_per\_label\_auc()} computes ROC-AUC for each of the 13 classes while respecting the valid mask, and \texttt{find\_optimal\_thresholds()} selects the per-label decision threshold that maximises Youden's J (sensitivity $+$ specificity $-1$) on the validation ROC curve.
+
+Per-label ROC-AUC, optimal decision threshold, and F1 at that threshold on the validation set:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Label} & \textbf{AUC} & \textbf{Threshold} & \textbf{F1} \\
+\midrule
+Enlarged Cardiomediastinum & 0.7245 & 0.2128 & 0.5382 \\
+Cardiomegaly               & 0.9115 & 0.4259 & 0.8477 \\
+Lung Opacity               & 0.8672 & 0.7812 & 0.8735 \\
+Lung Lesion                & 0.8098 & 0.2759 & 0.6180 \\
+Edema                      & 0.8919 & 0.7337 & 0.8495 \\
+Consolidation              & 0.8722 & 0.1264 & 0.7063 \\
+Pneumonia                  & 0.8373 & 0.1488 & 0.5857 \\
+Atelectasis                & 0.8442 & 0.6470 & 0.8163 \\
+Pneumothorax               & 0.7732 & 0.2248 & 0.5719 \\
+Pleural Effusion           & 0.9222 & 0.7878 & 0.8985 \\
+Pleural Other              & 0.7826 & 0.1399 & 0.4167 \\
+Fracture                   & 0.7515 & 0.2110 & 0.5674 \\
+Support Devices            & 0.8110 & 0.6889 & 0.8986 \\
+\midrule
+\textbf{Mean}              & \textbf{0.8307} & & \textbf{0.7068} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Thresholds vary widely (0.14--0.79) due to class imbalance.
+Rare classes (Pneumonia, Pleural Other) produce low sigmoid outputs at their decision boundary and require low thresholds; a single global threshold of 0.5 would severely underdetect them.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{photos/roc_auc_curves.png}
+    \caption{Per-label ROC curves on the validation set.}
+\end{figure}
+
+\subsection{GradCAM: Layer Comparison}
+
+We compared GradCAM heatmaps across two ResNet layers --- \texttt{backbone.layer3} (shallower, finer spatial resolution) and \texttt{backbone.layer4} (deeper, coarser) --- on the three most frequently positive classes in our validation subset: \textbf{Support Devices}, \textbf{Pleural Effusion}, and \textbf{Lung Opacity}.
+
+\textbf{Quantitative agreement (Pearson $r$ between layer3 and layer4 heatmaps):}
+
+\begin{center}
+\begin{tabular}{lcp{7cm}}
+\toprule
+\textbf{Class} & \textbf{$r$(layer3, layer4)} & \textbf{Interpretation} \\
+\midrule
+Support Devices  & 0.47 & Strong divergence between layers \\
+Pleural Effusion & 0.75 & Moderate agreement across layers \\
+Lung Opacity     & 0.77 & Moderate agreement across layers \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Per-class observations:}
+\begin{itemize}
+    \item \textbf{Support Devices.}
+    The largest divergence ($r=0.47$): \texttt{layer4} activates broadly over the mediastinum and lung fields, while \texttt{layer3} produces a finer, more localised map concentrated on the upper mediastinum where devices are typically located.
+    This suggests that finer spatial detail from shallower layers is genuinely informative for spatially-distributed findings.
+
+    \item \textbf{Pleural Effusion.}
+    Moderate agreement ($r=0.75$): both layers localise to the lower hemithorax where effusions are expected.
+    \texttt{layer3} is slightly sharper, but for this spatially compact and high-contrast pathology the two layers behave similarly.
+
+    \item \textbf{Lung Opacity.}
+    Moderate agreement ($r=0.77$): \texttt{layer4} activates the lung fields broadly, while \texttt{layer3} highlights specific denser focal areas.
+    The difference is less pronounced than for Support Devices, consistent with the more diffuse nature of opacity.
+\end{itemize}
+
+\textbf{Explanation overlays (GradCAM at \texttt{layer3} left $\cdot$ \texttt{layer4} right):}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{photos/gradcam_layers_Support_Devices.png}
+    \caption{GradCAM at \texttt{layer3} (left) and \texttt{layer4} (right) for \textbf{Support Devices} ($r=0.47$). The divergence is clearly visible: \texttt{layer3} concentrates on the upper mediastinum, \texttt{layer4} activates more broadly.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{photos/gradcam_layers_Pleural_Effusion.png}
+    \caption{GradCAM at \texttt{layer3} and \texttt{layer4} for \textbf{Pleural Effusion} ($r=0.75$). Both layers localise to the lower hemithorax; \texttt{layer3} is marginally sharper.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{photos/gradcam_layers_Lung_Opacity.png}
+    \caption{GradCAM at \texttt{layer3} and \texttt{layer4} for \textbf{Lung Opacity} ($r=0.77$). \texttt{layer3} highlights focal dense regions; \texttt{layer4} activates the lung fields more uniformly.}
+\end{figure}
+
+\textbf{Key takeaway.}
+The choice of layer matters for GradCAM.
+Deeper layers (\texttt{layer4}) capture coarser, more semantically-oriented activations and tend to highlight broad regions.
+Shallower layers (\texttt{layer3}) preserve finer spatial detail, producing more localised heatmaps --- especially for spatially distributed or device-related findings such as Support Devices ($r=0.47$).
+For compact, high-contrast pathologies such as Pleural Effusion the difference between layers is smaller ($r=0.75$), suggesting that layer choice matters most when the finding is spatially diffuse.
+
+\smallskip
+\textit{Note.}
+As students without clinical expertise in radiology, we could not independently assess whether highlighted regions correspond to anatomically plausible disease locations.
+For the anatomical judgements above we used SOTA LLM assistance (Claude Opus 4.6, extended thinking).
+The layer-level analysis design, ROC-AUC evaluation, per-label threshold selection, and all implementation were done by us as students.
+
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Contribution of Each Group Member}
+
+\textbf{Kirill Shumskiy:}
+\begin{itemize}[leftmargin=*]
+    \item Dataset preprocessing pipeline (\texttt{preprocess.py}, \texttt{dataset.py}): parsing \texttt{train.csv}/\texttt{valid.csv}, frontal-view filtering, uncertainty-label handling, and valid-mask construction.
+    \item GitHub repository organisation and maintenance throughout the project.
+\end{itemize}
+
+\textbf{Ivan Makarov:}
+\begin{itemize}[leftmargin=*]
+    \item From-scratch implementation of GradCAM (\texttt{gradcam.py}) in pure PyTorch and NumPy, including multi-layer analysis utilities.
+    \item Training script preparation (\texttt{model.py}, \texttt{train.py}, \texttt{loss.py}): ResNet-50 model definition, masked BCE loss, and the full training loop with TensorBoard logging and checkpoint saving.
+    \item GitHub repository organisation and maintenance throughout the project.
+\end{itemize}
+
+\textbf{Arthur Babkin:}
+\begin{itemize}[leftmargin=*]
+    \item Integrated Kirill's preprocessing pipeline and Ivan's training scripts to run end-to-end model training, including optimal per-label threshold search via Youden's J on the validation ROC curves.
+    \item Layer comparison of GradCAM at \texttt{layer3} vs.\ \texttt{layer4} for Support Devices, Pleural Effusion, and Lung Opacity.
+    \item GitHub repository organisation and maintenance throughout the project.
+    \item Baseline Implementation report E2E (end to end) writing.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Lessons Learned}
+
+\begin{itemize}
+    \item \textbf{Training details had a major impact on performance.}
+    The key training lesson is that proper masking of uncertain labels is absolutely critical - without it, the model learns from corrupted data and performance degrades significantly. Focal loss dramatically outperforms standard BCE on imbalanced medical data, especially for rare conditions. Learning rate scheduling with ReduceLROnPlateau works better than fixed schedules for medical datasets. Early stopping based on validation AUC prevents overfitting - medical images are prone to memorization rather than generalization. Batch size matters more than expected - smaller batches (16-32) give better generalization on CheXpert than larger batches. Proper TensorBoard logging per class is essential for identifying which pathologies the model struggles with. The best model checkpoint should be saved based on validation AUC, not training loss, as medical AI requires real-world performance metrics.
+
+
+    \item \textbf{Small training subsets lead to overfitting.}
+    Using only 10k images from a dataset of more than 200k, the model achieved an almost perfect training AUC (0.9999), while the validation AUC stopped at 0.83. This gap shows that the model fitted the training data too closely and did not generalise equally well to unseen examples. At the same time, there is a practical trade-off: even training on 10k images already takes more than an hour on our hardware. Future improvements therefore require a balance between better generalisation and realistic computational cost, for example through regularisation, augmentation, and more efficient training settings (it is needed be discussed more between team members).
+
+    \item \textbf{A single global threshold is wrong for multi-label problems.}
+    Optimal per-label thresholds ranged from 0.14 to 0.79.
+    Using the default 0.5 would have missed the majority of positive examples for rare classes like Pneumonia and Pleural Other.
+    Youden's J is a simple but effective way to set label-specific thresholds from the validation set.
+
+    \item \textbf{The choice of layer matters as much as the choice of method.}
+    At \texttt{layer4} GradCAM and LayerCAM are almost indistinguishable for most classes.
+    The real difference emerges at \texttt{layer3}: LayerCAM's element-wise weighting preserves fine spatial detail that GradCAM's global pooling discards.
+    Comparing CAMs at multiple layers is cheap and highly informative.
+
+    \item \textbf{FP and TN cases are the most informative for explanation analysis.}
+    True positives often look plausible almost by definition, but false positives and true negatives reveal much more about how the model actually behaves. In low-confidence and TN cases, GradCAM often shifted toward image corners and borders, suggesting possible reliance on artifacts or framing effects, while LayerCAM more often stayed within the chest area. Even when LayerCAM was not clearly correct, its maps were usually more anatomically plausible, which made such cases especially useful for comparing the practical behaviour of the two methods.
+
+    \item \textbf{Domain knowledge cannot be replaced by AUC alone.}
+    Evaluating whether a highlighted region is anatomically meaningful requires expertise we do not have.
+    In the absence of radiologist annotations, LLM-assisted validation (with appropriate scepticism) was the most practical option available to us.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────
+\section{Further Goals}
+
+\begin{itemize}
+    \item \textbf{Reduce overfitting?}
+
+    \item \textbf{Ivan Makarov: LayerCAM implementation.}
+    Implement LayerCAM from scratch in pure PyTorch and NumPy, following the same design as the existing GradCAM module.
+
+    \item \textbf{Kirill Shumskiy: LayerCAM training integration.}
+    Integrate LayerCAM into the training and evaluation pipeline.
+
+    \item \textbf{Arthur Babkin: visualisation and comparison of LayerCAM with GradCAM.}
+    Produce side-by-side overlays and quantitative comparisons of GradCAM and LayerCAM heatmaps across \texttt{layer3} and \texttt{layer4}.
+    A particular focus will be on FP and TN cases, which are the most informative for explanation analysis: true positives often look plausible almost by definition, but false positives and true negatives reveal much more about how the model actually behaves.
+    In low-confidence and TN cases, GradCAM often shifts toward image corners and borders, suggesting possible reliance on artifacts or framing effects --- it will be important to see whether LayerCAM stays within anatomically meaningful regions in these same cases, and whether the two methods agree or diverge on model shortcuts.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────
+\section*{References}
+
+\begin{itemize}[leftmargin=*]
+    \item Jiang et al., \textit{LayerCAM: Exploring Hierarchical Class Activation Maps for Localization}, 2021.
+    \item Selvaraju et al., \textit{Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization}, ICCV 2017.
+    \item Irvin et al., \textit{CheXpert: A Large Chest Radiograph Dataset with Uncertainty Labels and Expert Comparison}, AAAI 2019.
+    \item He et al., \textit{Deep Residual Learning for Image Recognition}, CVPR 2016.
+\end{itemize}
+
+\end{document}
