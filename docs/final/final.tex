@@ -337,6 +337,10 @@ The role of the LLMs was to validate and refine these observations; final conclu
 \section{Lessons Learned}
 
 \begin{itemize}
+    \item \textbf{Training details had a major impact on performance.}
+    The key training lesson is that proper masking of uncertain labels is absolutely critical - without it, the model learns from corrupted data and performance degrades significantly. Focal loss dramatically outperforms standard BCE on imbalanced medical data, especially for rare conditions. Learning rate scheduling with ReduceLROnPlateau works better than fixed schedules for medical datasets. Early stopping based on validation AUC prevents overfitting - medical images are prone to memorization rather than generalization. Batch size matters more than expected - smaller batches (16-32) give better generalization on CheXpert than larger batches. Proper TensorBoard logging per class is essential for identifying which pathologies the model struggles with. The best model checkpoint should be saved based on validation AUC, not training loss, as medical AI requires real-world performance metrics.
+
+
     \item \textbf{Small training subsets lead to overfitting.}
     Using only 10k images from a dataset of more than 200k, the model achieved an almost perfect training AUC (0.9999), while the validation AUC stopped at 0.83. This gap shows that the model fitted the training data too closely and did not generalise equally well to unseen examples. At the same time, there is a practical trade-off: even training on 10k images already takes more than an hour on our hardware. Future improvements therefore require a balance between better generalisation and realistic computational cost, for example through regularisation, augmentation, and more efficient training settings (it is needed be discussed more between team members).
 
