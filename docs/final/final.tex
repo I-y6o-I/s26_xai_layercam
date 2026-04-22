@@ -15,9 +15,10 @@
 \begin{document}
 
 \begin{center}
-    {\LARGE \textbf{XAI Course Baseline Implementation Report: LayerCAM for multi-label lungs pathology Detection on CheXpert Dataset}} \\[1.2em]
+    {\LARGE \textbf{XAI Course Final Implementation Report: LayerCAM for multi-label lungs pathology Detection on CheXpert Dataset}} \\[1.2em]
     {\large Kirill Shumskiy, Ivan Makarov, Arthur Babkin} \\[0.6em]
-    {\large March 21, 2026}
+    {\large April 20, 2026} \\[0.4em]
+    {\small \url{https://github.com/I-y6o-I/s26_xai_layercam}}
 \end{center}
 
 % ─────────────────────────────────────────────────────────────────────
@@ -330,7 +331,7 @@ The role of the LLMs was to validate and refine these observations; final conclu
     \item Model training (\texttt{model.py}, \texttt{train.py}, \texttt{loss.py}) and optimal per-label threshold search via Youden's J on the validation ROC curves.
     \item Comparative analysis of GradCAM vs.\ LayerCAM on real examples across layers and prediction categories (TP\,/\,FP\,/\,FN\,/\,TN).
     \item GitHub repository organisation and maintenance throughout the project.
-    \item Base Implementation report.
+    \item Final Implementation report.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────
@@ -366,7 +367,14 @@ The role of the LLMs was to validate and refine these observations; final conclu
 \section{Further Goals}
 
 \begin{itemize}
-    \item \textbf{Reduce overfitting?}
+    \item \textbf{Train on more data.}
+    The biggest limitation we have right now is overfitting --- our training AUC reached 0.9999 while validation AUC stayed at 0.83. The main reason is that we only used 10k images out of 224k available, because training already took over an hour on our hardware. In the future, we would like to train on the full dataset and also try data augmentation and stronger regularisation to help the model generalise better.
+
+    \item \textbf{Validate explanations with a real expert.}
+    Right now we used LLM assistance to judge whether the highlighted regions make anatomical sense, which is a reasonable workaround but not a proper evaluation. Ideally, we would want a radiologist to look at the heatmaps and tell us whether GradCAM and LayerCAM are actually focusing on the right areas. Without that, we cannot really say how clinically useful the explanations are.
+
+    \item \textbf{Compare with other XAI methods.}
+    We only implemented GradCAM and LayerCAM, but there are other explanation methods worth trying --- for example ScoreCAM, LIME, or SHAP. It would be interesting to see how they behave on the same images and whether they agree or disagree with our heatmaps, especially in the difficult FP and TN cases.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────
